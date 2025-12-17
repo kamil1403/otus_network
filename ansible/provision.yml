@@ -1,0 +1,86 @@
+---
+- name: Base System Setup
+  hosts: all
+  become: true
+  gather_facts: no
+  tasks:
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+      ignore_errors: yes
+
+    - name: Install networking tools
+      apt:
+        name:
+          - traceroute
+          - tcpdump
+          - iputils-ping
+          - net-tools
+          - curl
+          - nano
+          - iptables
+        state: present
+
+- name: Configure IP Forwarding
+  hosts: routers
+  become: true
+  tasks:
+    - name: Enable net.ipv4.ip_forward
+      sysctl:
+        name: net.ipv4.ip_forward
+        value: '1'
+        sysctl_set: yes
+        state: present
+        reload: yes
+
+- name: Configure Routing and NAT
+  hosts: routers
+  become: true
+  tasks:
+    # InetRouter: Enable NAT for Internet access
+    - name: Configure NAT on InetRouter
+      shell: |
+        iptables -t nat -F POSTROUTING
+        iptables -t nat -A POSTROUTING -o enp0s3 -j MASQUERADE
+      when: inventory_hostname == "inetRouter"
+
+    # CentralRouter: Routes to Offices and Default Route to Internet
+    - name: Configure routes on CentralRouter
+      shell: |
+        ip route add 192.168.1.0/24 via 192.168.255.6
+        ip route add 192.168.2.0/24 via 192.168.255.10
+        ip route add default via 192.168.255.1
+      when: inventory_hostname == "centralRouter"
+      ignore_errors: yes
+
+    # Office1Router: Default route to CentralRouter
+    - name: Configure default route on Office1Router
+      shell: ip route add default via 192.168.255.9
+      when: inventory_hostname == "office1Router"
+      ignore_errors: yes
+
+    # Office2Router: Default route to CentralRouter
+    - name: Configure default route on Office2Router
+      shell: ip route add default via 192.168.255.5
+      when: inventory_hostname == "office2Router"
+      ignore_errors: yes
+
+- name: Configure Servers Default Gateway
+  hosts: servers
+  become: true
+  tasks:
+    - name: Set gateway for CentralServer
+      shell: ip route add default via 192.168.0.1
+      when: inventory_hostname == "centralServer"
+      ignore_errors: yes
+
+    - name: Set gateway for Office1Server
+      shell: ip route add default via 192.168.2.129
+      when: inventory_hostname == "office1Server"
+      ignore_errors: yes
+
+    - name: Set gateway for Office2Server
+      shell: ip route add default via 192.168.1.1
+      when: inventory_hostname == "office2Server"
+      ignore_errors: yes
